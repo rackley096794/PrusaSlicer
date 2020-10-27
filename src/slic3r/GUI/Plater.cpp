@@ -5216,6 +5216,10 @@ void Plater::export_toolpaths_to_obj() const
 
 void Plater::reslice()
 {
+    // There is "invalid data" button instead "slice now"
+    if (p->process_completed_with_error)
+        return;
+
     // Stop arrange and (or) optimize rotation tasks.
     this->stop_jobs();
 
