@@ -1468,6 +1468,13 @@ bool PlaterDropTarget::OnDropFiles(wxCoord x, wxCoord y, const wxArrayString &fi
     return true;
 }
 
+// State to manage showing after export notifications and device ejecting
+enum ExportingStatus{
+    NOT_EXPORTING,
+    EXPORTING_TO_REMOVABLE,
+    EXPORTING_TO_LOCAL
+};
+
 // Plater / private
 struct Plater::priv
 {
@@ -1770,8 +1777,9 @@ struct Plater::priv
     // Caching last value of show_action_buttons parameter for show_action_buttons(), so that a callback which does not know this state will not override it.
     mutable bool    			ready_to_slice = { false };
     // Flag indicating that the G-code export targets a removable device, therefore the show_action_buttons() needs to be called at any case when the background processing finishes.
-    bool 						writing_to_removable_device { false };
-    bool 						show_ExportToRemovableFinished_notification { false };
+    ExportingStatus             exporting_status { NOT_EXPORTING };
+    std::string                 last_output_path;
+    std::string                 last_output_dir_path;
     bool                        inside_snapshot_capture() { return m_prevent_snapshots != 0; }
 	bool                        process_completed_with_error { false };
 private:
@@ -2038,8 +2046,9 @@ Plater::priv::priv(Plater *q, MainFrame *main_frame)
 	    });
         this->q->Bind(EVT_REMOVABLE_DRIVES_CHANGED, [this, q](RemovableDrivesChangedEvent &) {
 		    this->show_action_buttons(this->ready_to_slice); 
-		    if (!this->sidebar->get_eject_shown()) {
-			    notification_manager->close_notification_of_type(NotificationType::ExportToRemovableFinished);
+		    // Close notification ExportingFinished but only if last export was to removable
+            if (!this->sidebar->get_eject_shown()) {
+			    notification_manager->device_ejected();
 		    }
 	    });
         // Start the background thread and register this window as a target for update events.
@@ -3507,9 +3516,7 @@ void Plater::priv::on_slicing_completed(wxCommandEvent & evt)
 void Plater::priv::on_export_began(wxCommandEvent& evt)
 {
 	if (show_warning_dialog)
-		warnings_dialog();
-    if (this->writing_to_removable_device && !process_completed_with_error)
-        this->show_ExportToRemovableFinished_notification = true;
+		warnings_dialog();  
 }
 void Plater::priv::on_slicing_began()
 {
@@ -3629,13 +3636,13 @@ void Plater::priv::on_process_completed(SlicingProcessCompletedEvent &evt)
             show_action_buttons(false);
         }
         // If writing to removable drive was scheduled, show notification with eject button
-        if (this->writing_to_removable_device && this->show_ExportToRemovableFinished_notification && !this->process_completed_with_error) {
+        if (exporting_status == ExportingStatus::EXPORTING_TO_REMOVABLE && !this->process_completed_with_error) {
             show_action_buttons(false);
-            notification_manager->push_notification(NotificationType::ExportToRemovableFinished, *q->get_current_canvas3D());
-        }
+            notification_manager->push_exporting_finished_notification(*q->get_current_canvas3D(), last_output_path, last_output_dir_path, true);
+        }else if (exporting_status == ExportingStatus::EXPORTING_TO_LOCAL && !this->process_completed_with_error)
+            notification_manager->push_exporting_finished_notification(*q->get_current_canvas3D(), last_output_path, last_output_dir_path, false);
     }
-    this->show_ExportToRemovableFinished_notification = false;
-	this->writing_to_removable_device = false;
+    exporting_status = ExportingStatus::NOT_EXPORTING;
 }
 
 void Plater::priv::on_layer_editing_toggled(bool enable)
@@ -4996,7 +5003,9 @@ void Plater::export_gcode(bool prefer_removable)
     if (! output_path.empty()) {
 		bool path_on_removable_media = removable_drive_manager.set_and_verify_last_save_path(output_path.string());
         p->notification_manager->new_export_began(path_on_removable_media);
-        p->writing_to_removable_device = path_on_removable_media;
+        p->exporting_status = path_on_removable_media ? ExportingStatus::EXPORTING_TO_REMOVABLE : ExportingStatus::EXPORTING_TO_LOCAL;
+        p->last_output_path = output_path.string();
+        p->last_output_dir_path = output_path.parent_path().string();
         p->export_gcode(output_path, path_on_removable_media, PrintHostJob());
         // Storing a path to AppConfig either as path to removable media or a path to internal media.
         // is_path_on_removable_drive() is called with the "true" parameter to update its internal database as the user may have shuffled the external drives

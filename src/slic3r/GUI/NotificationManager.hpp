@@ -32,7 +32,11 @@ enum class NotificationType
 	SlicingComplete,
 //	SlicingNotPossible,
 	// Notification on end of export to a removable media, with hyperling to eject the external media.
-	ExportToRemovableFinished,
+	// Obsolete by ExportFinished
+//	ExportToRemovableFinished,
+	// Notification on end of export, with hyperling to see folder and eject if export was to external media.
+	// Own subclass.
+	ExportFinished,
 	// Works on OSX only.
 	//FIXME Do we want to have it on Linux and Windows? Is it possible to get the Disconnect event on Windows?
 	Mouse3dDisconnected,
@@ -115,6 +119,12 @@ public:
 	// Called when the side bar changes its visibility, as the "slicing complete" notification supplements
 	// the "slicing info" normally shown at the side bar.
 	void set_slicing_complete_large(bool large);
+	// Exporting finished, show this information with path, button to open containing folder and if ejectable - eject button
+	void push_exporting_finished_notification(GLCanvas3D& canvas, std::string path, std::string dir_path, bool on_removable);
+    // Close old notification ExportFinished.
+	void new_export_began(bool on_removable);
+	// finds ExportFinished notification and closes it if it was to removable device
+	void device_ejected();
 	// renders notifications in queue and deletes expired ones
 	void render_notifications(GLCanvas3D& canvas, float overlay_width);
 	// finds and closes all notifications of given type
@@ -123,8 +133,7 @@ public:
     void set_in_preview(bool preview);
 	// Move to left to avoid colision with variable layer height gizmo.
 	void set_move_from_overlay(bool move) { m_move_from_overlay = move; }
-	// Close old notification ExportToRemovableFinished or transform it to only contain "Eject drive".
-	void new_export_began(bool on_removable);
+	
 private:
 	// duration 0 means not disapearing
 	struct NotificationData {
@@ -170,7 +179,7 @@ private:
 		void                   close() { m_close_pending = true; }
 		// data from newer notification of same type
 		void                   update(const NotificationData& n);
-		bool                   get_finished() const { return m_finished; }
+		bool                   get_finished() const { return m_finished || m_close_pending; }
 		// returns top after movement
 		float                  get_top() const { return m_top_y; }
 		//returns top in actual frame
@@ -188,21 +197,24 @@ private:
 	protected:
 		// Call after every size change
 		void         init();
+		// Part of init() 
+		virtual void count_spaces();
 		// Calculetes correct size but not se it in imgui!
 		virtual void set_next_window_size(ImGuiWrapper& imgui);
 		virtual void render_text(ImGuiWrapper& imgui,
 			                     const float win_size_x, const float win_size_y,
 			                     const float win_pos_x , const float win_pos_y);
-		void         render_close_button(ImGuiWrapper& imgui,
+		virtual void render_close_button(ImGuiWrapper& imgui,
 			                             const float win_size_x, const float win_size_y,
 			                             const float win_pos_x , const float win_pos_y);
 		void         render_countdown(ImGuiWrapper& imgui,
 			                          const float win_size_x, const float win_size_y,
 			                          const float win_pos_x , const float win_pos_y);
-		void         render_hypertext(ImGuiWrapper& imgui,
+		virtual void render_hypertext(ImGuiWrapper& imgui,
 			                          const float text_x, const float text_y,
 		                              const std::string text,
 		                              bool more = false);
+		// Left sign could be error or warning sign
 		void         render_left_sign(ImGuiWrapper& imgui);
 		void         render_minimize_button(ImGuiWrapper& imgui,
 			                                const float win_pos_x, const float win_pos_y);
@@ -237,7 +249,9 @@ private:
 		// Will go to m_finished next render
 		bool             m_close_pending        { false }; 
 		// variables to count positions correctly
+		// all space without text
 		float            m_window_width_offset;
+		// Space on left side without text
 		float            m_left_indentation;
 		// Total size of notification window - varies based on monitor
 		float            m_window_height        { 56.0f };  
@@ -285,6 +299,33 @@ private:
 		int    		warning_step;
 	};
 
+	class ExportFinishedNotification : public PopNotification
+	{
+	public:
+		ExportFinishedNotification(const NotificationData& n, NotificationIDProvider& id_provider, wxEvtHandler* evt_handler, bool to_removable, std::string export_path, std::string export_dir_path)
+			: PopNotification(n, id_provider, evt_handler)
+			, m_to_removable(to_removable)
+			, m_export_path(export_path)
+			, m_export_dir_path(export_dir_path)
+		    {}
+		bool        m_to_removable;
+		std::string m_export_path;
+		std::string m_export_dir_path;
+	protected:
+		// Reserves space on right for more buttons
+		virtual void count_spaces();
+		// Renders also button to open directory with exported path and eject removable media
+		virtual void render_close_button(ImGuiWrapper& imgui,
+			                             const float win_size_x, const float win_size_y,
+			                             const float win_pos_x, const float win_pos_y);
+		void         render_path_button(ImGuiWrapper& imgui,
+			                            const float win_size_x, const float win_size_y,
+		                              	const float win_pos_x, const float win_pos_y);
+		void         render_eject_button(ImGuiWrapper& imgui,
+			                             const float win_size_x, const float win_size_y,
+			                             const float win_pos_x, const float win_pos_y);
+	};
+
 	//pushes notification into the queue of notifications that are rendered
 	//can be used to create custom notification
 	bool push_notification_data(const NotificationData& notification_data, GLCanvas3D& canvas, int timestamp);
@@ -315,7 +356,7 @@ private:
 	//prepared (basic) notifications
 	const std::vector<NotificationData> basic_notifications = {
 //		{NotificationType::SlicingNotPossible, NotificationLevel::RegularNotification, 10,  _u8L("Slicing is not possible.")},
-		{NotificationType::ExportToRemovableFinished, NotificationLevel::ImportantNotification, 0,  _u8L("Exporting finished."),  _u8L("Eject drive.") },
+//		{NotificationType::ExportToRemovableFinished, NotificationLevel::ImportantNotification, 0,  _u8L("Exporting finished."),  _u8L("Eject drive.") },
 		{NotificationType::Mouse3dDisconnected, NotificationLevel::RegularNotification, 10,  _u8L("3D Mouse disconnected.") },
 //		{NotificationType::Mouse3dConnected, NotificationLevel::RegularNotification, 5,  _u8L("3D Mouse connected.") },
 //		{NotificationType::NewPresetsAviable, NotificationLevel::ImportantNotification, 20,  _u8L("New Presets are available."),  _u8L("See here.") },
