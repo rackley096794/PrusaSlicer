@@ -234,6 +234,7 @@ NotificationManager::PopNotification::RenderResult NotificationManager::PopNotif
 			render_left_sign(imgui);
 			render_text(imgui, win_size.x, win_size.y, win_pos.x, win_pos.y);
 			render_close_button(imgui, win_size.x, win_size.y, win_pos.x, win_pos.y);
+			m_minimize_b_visible = false;
 			if (m_multiline && m_lines_count > 3)
 				render_minimize_button(imgui, win_pos.x, win_pos.y);
 		} else {
@@ -268,7 +269,7 @@ void NotificationManager::PopNotification::count_spaces()
 		float picture_width = ImGui::CalcTextSize(text.c_str()).x;
 		m_left_indentation = picture_width + m_line_height / 2;
 	}
-	m_window_width_offset = m_left_indentation + m_line_height * 2.5f;
+	m_window_width_offset = m_left_indentation + m_line_height * 3.f;
 	m_window_width = m_line_height * 25;
 }
 void NotificationManager::PopNotification::init()
@@ -443,8 +444,7 @@ void NotificationManager::PopNotification::render_hypertext(ImGuiWrapper& imgui,
 			set_next_window_size(imgui);
 		}
 		else {
-			on_text_click();
-			m_close_pending = true;
+			m_close_pending = on_text_click();
 		}
 	}
 	ImGui::PopStyleColor();
@@ -490,7 +490,7 @@ void NotificationManager::PopNotification::render_close_button(ImGuiWrapper& img
 	button_text = ImGui::CloseIconMarker;
 	
 	if (ImGui::IsMouseHoveringRect(ImVec2(win_pos.x - win_size.x / 10.f, win_pos.y),
-		                           ImVec2(win_pos.x, win_pos.y + win_size.y - (m_multiline && m_lines_count > 3 ? 2 * m_line_height : 0)),
+		                           ImVec2(win_pos.x, win_pos.y + win_size.y - ( m_minimize_b_visible ? 2 * m_line_height : 0)),
 		                           true))
 	{
 		button_text = ImGui::CloseIconHoverMarker;
@@ -506,7 +506,7 @@ void NotificationManager::PopNotification::render_close_button(ImGuiWrapper& img
 	//invisible large button
 	ImGui::SetCursorPosX(win_size.x - m_line_height * 2.125);
 	ImGui::SetCursorPosY(0);
-	if (imgui.button(" ", m_line_height * 2.125, win_size.y - (m_multiline && m_lines_count > 3 ? 2 * m_line_height : 0)))
+	if (imgui.button(" ", m_line_height * 2.125, win_size.y - ( m_minimize_b_visible ? 2 * m_line_height : 0)))
 	{
 		m_close_pending = true;
 	}
@@ -607,9 +607,11 @@ void NotificationManager::PopNotification::render_minimize_button(ImGuiWrapper& 
 	ImGui::PopStyleColor();
 	ImGui::PopStyleColor();
 	ImGui::PopStyleColor();
+	m_minimize_b_visible = true;
 }
-void NotificationManager::PopNotification::on_text_click()
+bool NotificationManager::PopNotification::on_text_click()
 {
+	bool ret = true;
 	switch (m_data.type) {
 	case NotificationType::SlicingComplete :
 		//wxGetApp().plater()->export_gcode(false);
@@ -629,6 +631,7 @@ void NotificationManager::PopNotification::on_text_click()
 	default:
 		break;
 	}
+	return ret;
 }
 void NotificationManager::PopNotification::update(const NotificationData& n)
 {
@@ -709,60 +712,46 @@ void NotificationManager::ExportFinishedNotification::count_spaces()
 		m_left_indentation = picture_width + m_line_height / 2;
 	}
 	//TODO count this properly
-	m_window_width_offset = m_left_indentation + m_line_height * (m_to_removable ? 5.1f : 3.8f);
+	m_window_width_offset = m_left_indentation + m_line_height * (m_to_removable ? 5.f : 3.f);
 	m_window_width = m_line_height * 25;
+}
+
+void NotificationManager::ExportFinishedNotification::render_text(ImGuiWrapper& imgui, const float win_size_x, const float win_size_y, const float win_pos_x, const float win_pos_y)
+{
+	
+	ImVec2      win_size(win_size_x, win_size_y);
+	ImVec2      win_pos(win_pos_x, win_pos_y);
+	float       x_offset = m_left_indentation;
+	std::string fulltext = m_text1 + m_hypertext; //+ m_text2;
+	ImVec2      text_size = ImGui::CalcTextSize(fulltext.c_str());
+	// Lines are always at least two and m_multiline is always true for ExportFinishedNotification.
+	// First line has "Export Finished" text and than hyper text open folder.
+	// Following lines are path to gcode.
+	int last_end = 0;
+	float starting_y = m_line_height / 2;//10;
+	float shift_y = m_line_height;// -m_line_height / 20;
+	for (size_t i = 0; i < m_lines_count; i++) {
+		std::string line = m_text1.substr(last_end, m_endlines[i] - last_end);
+		if (i < m_lines_count - 1)
+			last_end = m_endlines[i] + (m_text1[m_endlines[i]] == '\n' || m_text1[m_endlines[i]] == ' ' ? 1 : 0);
+		ImGui::SetCursorPosX(x_offset);
+		ImGui::SetCursorPosY(starting_y + i * shift_y);
+		imgui.text(line.c_str());
+		//hyperlink text
+		if ( i == 0 )  {
+			render_hypertext(imgui, x_offset + ImGui::CalcTextSize(m_text1.substr(0, last_end).c_str()).x + ImGui::CalcTextSize(" ").x, starting_y, _u8L("Open Folder."));
+		}
+	}
+
 }
 
 void NotificationManager::ExportFinishedNotification::render_close_button(ImGuiWrapper& imgui, const float win_size_x, const float win_size_y, const float win_pos_x, const float win_pos_y)
 {
 	PopNotification::render_close_button(imgui, win_size_x, win_size_y, win_pos_x, win_pos_y);
-	render_path_button(imgui, win_size_x, win_size_y, win_pos_x, win_pos_y);
 	if(m_to_removable)
 		render_eject_button(imgui, win_size_x, win_size_y, win_pos_x, win_pos_y);
 }
-void NotificationManager::ExportFinishedNotification::render_path_button(ImGuiWrapper & imgui, const float win_size_x, const float win_size_y, const float win_pos_x, const float win_pos_y)
-{
-	ImVec2 win_size(win_size_x, win_size_y);
-	ImVec2 win_pos(win_pos_x, win_pos_y);
-	ImVec4 orange_color = ImGui::GetStyleColorVec4(ImGuiCol_Button);
-	orange_color.w = 0.8f;
-	ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(.0f, .0f, .0f, .0f));
-	ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(.0f, .0f, .0f, .0f));
-	Notifications_Internal::push_style_color(ImGuiCol_Text, ImVec4(1.f, 1.f, 1.f, 1.f), m_fading_out, m_current_fade_opacity);
-	Notifications_Internal::push_style_color(ImGuiCol_TextSelectedBg, ImVec4(0, .75f, .75f, 1.f), m_fading_out, m_current_fade_opacity);
-	ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(.0f, .0f, .0f, .0f));
 
-	std::string button_text;
-	button_text = ImGui::FolderMarker;
-
-	if (ImGui::IsMouseHoveringRect(ImVec2(win_pos.x - m_line_height * 3.375f, win_pos.y),
-		ImVec2(win_pos.x - m_line_height * 2.126f, win_pos.y + win_size.y - (m_multiline && m_lines_count > 3 ? 2 * m_line_height : 0)),
-		true))
-	{
-		button_text = ImGui::FolderHoverMarker;
-	}
-	ImVec2 button_pic_size = ImGui::CalcTextSize(button_text.c_str());
-	ImVec2 button_size(button_pic_size.x * 1.25f, button_pic_size.y * 1.25f);
-	ImGui::SetCursorPosX(win_size.x - m_line_height * 3.5f);
-	ImGui::SetCursorPosY(win_size.y / 2 - button_size.y / 2);
-	if (imgui.button(button_text.c_str(), button_size.x, button_size.y))
-	{
-		Notifications_Internal::open_folder(m_export_dir_path);
-	}
-	//invisible large button
-	ImGui::SetCursorPosX(win_size.x - m_line_height * 3.375f);
-	ImGui::SetCursorPosY(0);
-	if (imgui.button(" ", m_line_height * 1.25f, win_size.y - (m_multiline && m_lines_count > 3 ? 2 * m_line_height : 0)))
-	{
-		Notifications_Internal::open_folder(m_export_dir_path);
-	}
-	ImGui::PopStyleColor();
-	ImGui::PopStyleColor();
-	ImGui::PopStyleColor();
-	ImGui::PopStyleColor();
-	ImGui::PopStyleColor();
-
-}
 void NotificationManager::ExportFinishedNotification::render_eject_button(ImGuiWrapper& imgui, const float win_size_x, const float win_size_y, const float win_pos_x, const float win_pos_y)
 {
 	ImVec2 win_size(win_size_x, win_size_y);
@@ -778,15 +767,21 @@ void NotificationManager::ExportFinishedNotification::render_eject_button(ImGuiW
 	std::string button_text;
 	button_text = ImGui::EjectMarker;
 
-	if (ImGui::IsMouseHoveringRect(ImVec2(win_pos.x - m_line_height * 4.625f, win_pos.y),
-		ImVec2(win_pos.x - m_line_height * 3.376f, win_pos.y + win_size.y - (m_multiline && m_lines_count > 3 ? 2 * m_line_height : 0)),
+    if (ImGui::IsMouseHoveringRect(ImVec2(win_pos.x - m_line_height * 4.5f, win_pos.y),
+		ImVec2(win_pos.x - m_line_height * 2.5f, win_pos.y + win_size.y),
 		true))
 	{
 		button_text = ImGui::EjectHoverMarker;
+		// tooltip
+		ImGui::PushStyleColor(ImGuiCol_PopupBg, ImGuiWrapper::COL_WINDOW_BACKGROUND);
+		ImGui::BeginTooltip();
+		imgui.text(_u8L("Eject drive"));
+		ImGui::EndTooltip();
+		ImGui::PopStyleColor();
 	}
 	ImVec2 button_pic_size = ImGui::CalcTextSize(button_text.c_str());
 	ImVec2 button_size(button_pic_size.x * 1.25f, button_pic_size.y * 1.25f);
-	ImGui::SetCursorPosX(win_size.x - m_line_height * 4.75f);
+	ImGui::SetCursorPosX(win_size.x - m_line_height * 4.f);
 	ImGui::SetCursorPosY(win_size.y / 2 - button_size.y / 2);
 	if (imgui.button(button_text.c_str(), button_size.x, button_size.y))
 	{
@@ -795,10 +790,11 @@ void NotificationManager::ExportFinishedNotification::render_eject_button(ImGuiW
 			wxPostEvent(m_evt_handler, EjectDriveNotificationClickedEvent(EVT_EJECT_DRIVE_NOTIFICAION_CLICKED));
 		m_close_pending = true;
 	}
+
 	//invisible large button
 	ImGui::SetCursorPosX(win_size.x - m_line_height * 4.625f);
 	ImGui::SetCursorPosY(0);
-	if (imgui.button(" ", m_line_height * 1.25f, win_size.y - (m_multiline && m_lines_count > 3 ? 2 * m_line_height : 0)))
+	if (imgui.button(" ", m_line_height * 2.f, win_size.y))
 	{
 		assert(m_evt_handler != nullptr);
 		if (m_evt_handler != nullptr)
@@ -810,6 +806,11 @@ void NotificationManager::ExportFinishedNotification::render_eject_button(ImGuiW
 	ImGui::PopStyleColor();
 	ImGui::PopStyleColor();
 	ImGui::PopStyleColor();
+}
+bool NotificationManager::ExportFinishedNotification::on_text_click()
+{
+	Notifications_Internal::open_folder(m_export_dir_path);
+	return false;
 }
 //------NotificationManager--------
 NotificationManager::NotificationManager(wxEvtHandler* evt_handler) :

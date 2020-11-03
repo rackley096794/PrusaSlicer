@@ -216,9 +216,10 @@ private:
 		                              bool more = false);
 		// Left sign could be error or warning sign
 		void         render_left_sign(ImGuiWrapper& imgui);
-		void         render_minimize_button(ImGuiWrapper& imgui,
+		virtual void render_minimize_button(ImGuiWrapper& imgui,
 			                                const float win_pos_x, const float win_pos_y);
-		void         on_text_click();
+		// Hypertext action, returns if close notification
+		virtual bool on_text_click();
 
 		const NotificationData m_data;
 
@@ -267,6 +268,8 @@ private:
 		bool             m_is_gray              { false };
 		//if multiline = true, notification is showing all lines(>2)
 		bool             m_multiline            { false };
+		// True if minimized button is rendered, helps to decide where is area for invisible close button
+		bool             m_minimize_b_visible   { false };
 		int              m_lines_count{ 1 };
 	    // Target for wxWidgets events sent by clicking on the hyperlink available at some notifications.
 		wxEvtHandler*    m_evt_handler;
@@ -285,7 +288,6 @@ private:
 			                     const float win_size_x, const float win_size_y,
 			                     const float win_pos_x, const float win_pos_y) 
 			                     override;
-
 		bool        m_is_large;
 		bool        m_has_print_info { false };
 		std::string m_print_info { std::string() };
@@ -307,23 +309,28 @@ private:
 			, m_to_removable(to_removable)
 			, m_export_path(export_path)
 			, m_export_dir_path(export_dir_path)
-		    {}
+		    {
+				m_multiline = true;
+			}
 		bool        m_to_removable;
 		std::string m_export_path;
 		std::string m_export_dir_path;
 	protected:
 		// Reserves space on right for more buttons
-		virtual void count_spaces();
+		virtual void count_spaces() override;
+		virtual void render_text(ImGuiWrapper& imgui,
+			                     const float win_size_x, const float win_size_y,
+			                     const float win_pos_x, const float win_pos_y) override;
 		// Renders also button to open directory with exported path and eject removable media
 		virtual void render_close_button(ImGuiWrapper& imgui,
 			                             const float win_size_x, const float win_size_y,
-			                             const float win_pos_x, const float win_pos_y);
-		void         render_path_button(ImGuiWrapper& imgui,
-			                            const float win_size_x, const float win_size_y,
-		                              	const float win_pos_x, const float win_pos_y);
+			                             const float win_pos_x, const float win_pos_y) override;
 		void         render_eject_button(ImGuiWrapper& imgui,
 			                             const float win_size_x, const float win_size_y,
 			                             const float win_pos_x, const float win_pos_y);
+		virtual void render_minimize_button(ImGuiWrapper& imgui, const float win_pos_x, const float win_pos_y) override 
+			{ m_minimize_b_visible = false; }
+		virtual bool on_text_click() override; 
 	};
 
 	//pushes notification into the queue of notifications that are rendered
